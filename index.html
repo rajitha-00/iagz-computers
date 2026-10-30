@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Computer Shop ERP — 3D Pipeline</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(140,140,160,0.25); border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(140,140,160,0.45); }
+
+    @keyframes beamPulse {
+      0%,100% { opacity:.5; }
+      50% { opacity:1; }
+    }
+    .beam-pulse { animation: beamPulse 2.4s infinite ease-in-out; }
+  </style>
+</head>
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased">
+
+<!-- ─── Header ──────────────────────────────────────────── -->
+<div class="px-5 pt-5 pb-4 border-b border-[var(--border)] flex flex-col md:flex-row md:items-center justify-between gap-3">
+  <div>
+    <div class="flex items-center gap-2">
+      <svg class="w-5 h-5 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/>
+      </svg>
+      <span class="font-bold text-lg tracking-tight">Computer Shop ERP — 3D Pipeline &amp; Journey Engine</span>
+    </div>
+    <p class="text-xs text-[var(--muted-foreground)] mt-0.5">
+      Drag canvas to orbit · Click a node to inspect tasks, endpoints &amp; schema
+    </p>
+  </div>
+  <!-- Journey Presets -->
+  <div class="flex flex-wrap gap-2">
+    <button id="jbtn-all"      onclick="selectJourney('all')"      class="jbtn active-jbtn px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors">All Nodes</button>
+    <button id="jbtn-customer" onclick="selectJourney('customer')" class="jbtn idle-jbtn px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors">Customer Flow</button>
+    <button id="jbtn-service"  onclick="selectJourney('service')"  class="jbtn idle-jbtn px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors">Repair Flow</button>
+    <button id="jbtn-owner"    onclick="selectJourney('owner')"    class="jbtn idle-jbtn px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors">Owner / POS</button>
+  </div>
+</div>
+
+<style>
+  .active-jbtn { background:rgba(99,102,241,.15); color:#818cf8; border-color:rgba(99,102,241,.4); }
+  .idle-jbtn   { background:var(--card); color:var(--muted-foreground); border-color:var(--border); }
+  .idle-jbtn:hover { color:var(--foreground); }
+</style>
+
+<!-- ─── Main Grid ─────────────────────────────────────────── -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-5 p-5">
+
+  <!-- LEFT: Canvas column (7 cols) -->
+  <div class="lg:col-span-7 flex flex-col gap-4">
+    <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl overflow-hidden shadow-sm">
+
+      <!-- Canvas toolbar -->
+      <div class="flex items-center justify-between px-4 py-2.5 border-b border-[var(--border)]">
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span class="text-xs font-semibold">3D Orbit Canvas</span>
+          <span class="text-xs text-[var(--muted-foreground)] hidden sm:inline">· Drag to rotate · Click nodes</span>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="resetCam()" class="text-xs px-2.5 py-1 rounded border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]">Reset</button>
+          <button id="rotBtn" onclick="toggleRot()" class="text-xs px-2.5 py-1 rounded border border-indigo-500/30 bg-indigo-500/10 text-indigo-400">Auto-Rotate ✓</button>
+        </div>
+      </div>
+
+      <!-- Canvas -->
+      <div id="canvasWrap" class="relative w-full cursor-grab active:cursor-grabbing select-none" style="height:440px;">
+        <canvas id="c" class="w-full h-full block"></canvas>
+        <!-- Legend -->
+        <div class="absolute bottom-3 left-0 right-0 flex justify-center gap-2 pointer-events-none">
+          <span class="px-2.5 py-1 rounded-md text-xs bg-[var(--card)]/80 backdrop-blur border border-[var(--border)] text-[var(--muted-foreground)]">⬤ Node = ERP Module</span>
+          <span class="px-2.5 py-1 rounded-md text-xs bg-[var(--card)]/80 backdrop-blur border border-[var(--border)] text-[var(--muted-foreground)]">— Beam = Data Bus</span>
+          <span class="px-2.5 py-1 rounded-md text-xs bg-[var(--card)]/80 backdrop-blur border border-[var(--border)] text-[var(--muted-foreground)]">· Packet = Event Flow</span>
+        </div>
+      </div>
+
+      <!-- Quick-jump pills -->
+      <div class="flex items-center gap-2 px-4 py-2.5 border-t border-[var(--border)] overflow-x-auto">
+        <span class="text-xs text-[var(--muted-foreground)] whitespace-nowrap">Jump:</span>
+        <div id="pillBar" class="flex gap-2"></div>
+      </div>
+    </div>
+
+    <!-- KPI Strip -->
+    <div class="grid grid-cols-4 gap-3">
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-3">
+        <p class="text-xs text-[var(--muted-foreground)]">Core Modules</p>
+        <p class="text-lg font-bold text-indigo-400 mt-0.5">7 Nodes</p>
+        <p class="text-xs text-emerald-500 mt-0.5">● Integrated</p>
+      </div>
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-3">
+        <p class="text-xs text-[var(--muted-foreground)]">Dev Stories</p>
+        <p class="text-lg font-bold text-amber-400 mt-0.5">24 Tasks</p>
+        <p class="text-xs text-[var(--muted-foreground)] mt-0.5">6 Sprints</p>
+      </div>
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-3">
+        <p class="text-xs text-[var(--muted-foreground)]">Serial Tracking</p>
+        <p class="text-lg font-bold text-emerald-400 mt-0.5">100%</p>
+        <p class="text-xs text-[var(--muted-foreground)] mt-0.5">Barcode Bound</p>
+      </div>
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-3">
+        <p class="text-xs text-[var(--muted-foreground)]">Commission</p>
+        <p class="text-lg font-bold text-purple-400 mt-0.5">Real GM</p>
+        <p class="text-xs text-[var(--muted-foreground)] mt-0.5">Price – Cost</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Inspector Panel (5 cols) -->
+  <div class="lg:col-span-5">
+    <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl shadow-sm p-5 flex flex-col" style="min-height:580px;">
+
+      <!-- Active node header -->
+      <div class="flex items-start justify-between pb-4 border-b border-[var(--border)]">
+        <div>
+          <div class="flex items-center gap-2 mb-1">
+            <span id="nodeBadge" class="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/25">Node 1 / 7</span>
+            <span id="nodeCat" class="text-xs text-[var(--muted-foreground)]">Client Experience</span>
+          </div>
+          <h2 id="nodeTitle" class="text-xl font-bold">Storefront &amp; PC Builder</h2>
+        </div>
+        <!-- Lucide icon badge -->
+        <div id="nodeIconBadge" class="w-11 h-11 rounded-xl border border-indigo-500/30 bg-indigo-500/10 flex items-center justify-center text-indigo-400">
+          <!-- SVG injected by JS -->
+        </div>
+      </div>
+
+      <!-- Journey -->
+      <div class="mt-4">
+        <p class="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)] mb-1.5">User Journey</p>
+        <p id="nodeJourney" class="text-sm leading-relaxed bg-[var(--background)] border border-[var(--border)] rounded-lg p-3"></p>
+      </div>
+
+      <!-- Tab bar -->
+      <div class="flex gap-5 border-b border-[var(--border)] mt-4">
+        <button id="tbtn-tasks"     onclick="tab('tasks')"     class="tab-active   pb-2 text-xs font-semibold">Tasks (<span id="taskCnt">4</span>)</button>
+        <button id="tbtn-endpoints" onclick="tab('endpoints')" class="tab-inactive pb-2 text-xs font-semibold">API Sandbox</button>
+        <button id="tbtn-schema"    onclick="tab('schema')"    class="tab-inactive pb-2 text-xs font-semibold">DB Schema</button>
+      </div>
+      <style>
+        .tab-active  { color:#818cf8; border-bottom:2px solid #6366f1; }
+        .tab-inactive{ color:var(--muted-foreground); border-bottom:2px solid transparent; }
+        .tab-inactive:hover { color:var(--foreground); }
+      </style>
+
+      <!-- Tab: Tasks -->
+      <div id="tab-tasks" class="mt-4 flex flex-col gap-3 overflow-y-auto flex-1" style="max-height:340px;"></div>
+
+      <!-- Tab: Endpoints -->
+      <div id="tab-endpoints" class="hidden mt-4 flex flex-col gap-3 flex-1">
+        <p class="text-xs text-[var(--muted-foreground)]">Select an endpoint and run a mock call:</p>
+        <div id="epList" class="flex flex-col gap-2"></div>
+        <div class="flex-1 bg-[var(--background)] border border-[var(--border)] rounded-xl p-3 flex flex-col mt-1" style="min-height:150px;">
+          <div class="flex items-center justify-between pb-2 border-b border-[var(--border)]">
+            <div class="flex items-center gap-1.5 text-xs font-mono text-emerald-400">
+              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Live Response Sandbox
+            </div>
+            <span id="resBadge" class="text-xs font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400">200 OK</span>
+          </div>
+          <pre id="resBox" class="text-xs font-mono text-[var(--foreground)] mt-2 overflow-auto flex-1 bg-black/20 rounded-lg p-2">Click ▶ Test Run on any endpoint above.</pre>
+        </div>
+      </div>
+
+      <!-- Tab: Schema -->
+      <div id="tab-schema" class="hidden mt-4 flex flex-col gap-2 flex-1">
+        <p class="text-xs text-[var(--muted-foreground)]">PostgreSQL Entity — attributes &amp; FK relations:</p>
+        <div id="schemaBox" class="bg-[var(--background)] border border-[var(--border)] rounded-xl p-3 overflow-auto flex-1 text-xs font-mono" style="max-height:320px;"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────
+//  LUCIDE SVG PATHS  (inlined, no CDN)
+// ─────────────────────────────────────────────────────────────────
+const LUCIDE = {
+  monitor: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`,
+  fileText: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>`,
+  package: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`,
+  shieldCheck: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>`,
+  wrench: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`,
+  creditCard: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>`,
+  calendar: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`,
+};
+
+// Convert SVG string → HTMLImageElement for canvas drawImage
+function svgToImg(svgStr, color, size) {
+  const colored = svgStr.replace(/currentColor/g, color);
+  const sized = colored.replace('<svg ', `<svg width="${size}" height="${size}" `);
+  const blob = new Blob([sized], { type: 'image/svg+xml' });
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+  img.src = url;
+  return img;
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  PIPELINE NODE DATA
+// ─────────────────────────────────────────────────────────────────
+const NODES = [
+  {
+    id:'pc_builder', label:'PC Builder', full:'Storefront & PC Builder Wizard',
+    category:'Client Experience', color:'#6366f1', lucide:'monitor',
+    pos:{ x:-175, y:-65, z:-35 },
+    journey:'Customer browses smart-filtered catalog → launches 8-step PC Builder wizard → live socket / RAM / wattage compatibility engine checks selections → sees promotional bundle discounts → one-click instant PDF quotation with QR code.',
+    tasks:[
+      { t:'Catalog Multi-Facet Filter Engine', d:'Socket, chipset, TDP, GPU length, form-factor filters with real-time stock counts.', p:'HIGH', e:'4d', done:true },
+      { t:'PC Compatibility Validator', d:'Rule engine: CPU↔Board socket, DDR4/5 type, PSU overhead ×1.25, GPU/cooler clearance.', p:'CRITICAL', e:'6d', done:false },
+      { t:'Promotional Bundle Engine', d:'Auto-apply combo discounts (CPU+Board bundle, memory kit deals).', p:'MEDIUM', e:'3d', done:false },
+      { t:'PDF Quotation Generator', d:'Branded PDF with QR claim code, 7-day price lock, WhatsApp share button.', p:'CRITICAL', e:'4d', done:false },
+    ],
+    endpoints:[
+      { m:'POST', p:'/api/v1/pc-builder/validate', d:'Checks socket, RAM type, wattage & clearance.',
+        req:{ cpuId:'prod_i7_14700k', motherboardId:'prod_b760_plus', ramIds:['ram_ddr5_32gb'], gpuId:'gpu_rtx4070s', psuWattage:750 },
+        res:{ compatible:true, estimatedWattage:520, recommendedPsu:750, warnings:[], ts:'2026-10-30T22:45:00Z' } },
+      { m:'GET',  p:'/api/v1/products/bundles', d:'Returns active promotional deals.',
+        req:{},
+        res:{ offers:[{ id:'bun_gc', title:'Intel 14th Gen + MSI Board', discountPct:12, validUntil:'2026-11-15' }] } },
+    ],
+    schema:`TABLE products (
+  id           UUID PRIMARY KEY,
+  name         VARCHAR(255) NOT NULL,
+  category     VARCHAR(64)  NOT NULL,
+  specs        JSONB,
+  -- { socket:"LGA1700", ddr:"DDR5", tdp:125, length_mm:300 }
+  is_active    BOOLEAN DEFAULT TRUE
+);
+
+TABLE product_variants (
+  id           UUID PRIMARY KEY,
+  product_id   UUID REFERENCES products(id),
+  sku          VARCHAR(64) UNIQUE NOT NULL,
+  retail_price NUMERIC(12,2) NOT NULL,
+  min_stock    INTEGER DEFAULT 3
+);`,
+  },
+  {
+    id:'quotation', label:'Quotes & Orders', full:'Quotation & Checkout Engine',
+    category:'Sales Funnel', color:'#3b82f6', lucide:'fileText',
+    pos:{ x:-65, y:-5, z:65 },
+    journey:'PC build config flows in → official PDF quotation generated with price lock → sent via WhatsApp/Email → customer approves online or walks into store → stock reservation locks during 30-min checkout window → order confirmed.',
+    tasks:[
+      { t:'7-Day Price Lock State Machine', d:'Snapshot prices at creation, auto-expire after 7 days with atomic stock release.', p:'HIGH', e:'2d', done:false },
+      { t:'WhatsApp & Email Dispatcher', d:'Send PDF link via WhatsApp Cloud API + SendGrid on quote creation.', p:'MEDIUM', e:'3d', done:false },
+      { t:'Online Quote Approval Button', d:'Customer converts quote to reserved order with one tap; triggers inventory hold.', p:'HIGH', e:'3d', done:false },
+      { t:'30-Min Checkout Stock Lock', d:'Redis TTL reservation preventing oversell during active checkout sessions.', p:'HIGH', e:'2d', done:false },
+    ],
+    endpoints:[
+      { m:'POST', p:'/api/v1/quotations/generate', d:'Creates PDF quote and reserve preview.',
+        req:{ customerName:'Samantha Perera', phone:'+94771234567', items:[{ variantId:'var_i7', qty:1, unitPrice:420 }, { variantId:'var_ddr5', qty:2, unitPrice:85 }] },
+        res:{ quotationNo:'QT-2026-9042', validUntil:'2026-11-06T23:59:59Z', totalAmount:590.00, pdfUrl:'https://s.shop/qt/QT-2026-9042.pdf', status:'ISSUED' } },
+      { m:'PATCH', p:'/api/v1/quotations/:id/approve', d:'Customer approves quote and creates order.',
+        req:{ action:'APPROVE' },
+        res:{ orderId:'ORD-2026-4401', status:'RESERVED', expiresIn:'30 min' } },
+    ],
+    schema:`TABLE quotations (
+  id             UUID PRIMARY KEY,
+  quotation_no   VARCHAR(32) UNIQUE NOT NULL,
+  customer_name  VARCHAR(128),
+  customer_phone VARCHAR(32),
+  total_amount   NUMERIC(12,2) NOT NULL,
+  status         VARCHAR(24) DEFAULT 'ISSUED',
+  -- ISSUED | CONVERTED | EXPIRED
+  price_locked_at TIMESTAMP WITH TIME ZONE,
+  expires_at     TIMESTAMP WITH TIME ZONE NOT NULL
+);`,
+  },
+  {
+    id:'inventory', label:'Serial Matrix', full:'Itemized Serial Inventory Engine',
+    category:'Operations Core', color:'#10b981', lucide:'package',
+    pos:{ x:55, y:30, z:-55 },
+    journey:'Supplier delivery arrives → staff scans individual barcodes/QR on each unit → each serial records unique purchase cost, bin location, vendor warranty terms → website product stock counters sync in real-time via WebSocket.',
+    tasks:[
+      { t:'Master SKU ↔ Serial Mapping', d:'1 Product SKU → N unique INVENTORY_SERIAL records, each with own purchase cost.', p:'CRITICAL', e:'5d', done:true },
+      { t:'Barcode/QR Scanner Web App', d:'Camera API integration for rapid batch serial intake on mobile or tablet.', p:'HIGH', e:'4d', done:false },
+      { t:'Real-time Stock Sync (WebSocket)', d:'Redis pub/sub pushes live inventory count changes to storefront product pages.', p:'HIGH', e:'3d', done:false },
+      { t:'Low-Stock & PO Alert Engine', d:'Auto-draft supplier Purchase Order when safety stock threshold is crossed.', p:'MEDIUM', e:'2d', done:false },
+    ],
+    endpoints:[
+      { m:'GET', p:'/api/v1/inventory/serials/:sn', d:'Fetches serial lifecycle, cost, warranty, status.',
+        req:{},
+        res:{ sn:'SN-RTX4070-98213', sku:'GPU-NV-4070S', purchaseCost:510, vendorWarrantyExpiry:'2029-10-15', storeWarrantyExpiry:'2028-10-15', status:'IN_STOCK', bin:'SHELF-B4-R2' } },
+      { m:'POST', p:'/api/v1/inventory/serials/bulk-intake', d:'Registers batch serials from supplier invoice.',
+        req:{ supplierId:'sup_asus', variantId:'var_b760', serials:['SN-MB-101','SN-MB-102','SN-MB-103'], costPerUnit:145 },
+        res:{ importedCount:3, status:'SUCCESS', ts:'2026-10-30T22:45:10Z' } },
+    ],
+    schema:`TABLE inventory_serials (
+  id                   UUID PRIMARY KEY,
+  variant_id           UUID REFERENCES product_variants(id),
+  serial_number        VARCHAR(128) UNIQUE NOT NULL,
+  purchase_cost        NUMERIC(12,2) NOT NULL,
+  vendor_warranty_exp  DATE NOT NULL,
+  store_warranty_exp   DATE NOT NULL,
+  status               VARCHAR(32) DEFAULT 'IN_STOCK',
+  -- IN_STOCK|RESERVED|SOLD|IN_SERVICE|LOANED|RMA
+  location_bin         VARCHAR(64),
+  intake_date          DATE DEFAULT CURRENT_DATE
+);`,
+  },
+  {
+    id:'warranty', label:'Warranty Vault', full:'Digital Warranty Vault & OCR',
+    category:'Document Management', color:'#06b6d4', lucide:'shieldCheck',
+    pos:{ x:-110, y:75, z:-80 },
+    journey:'Staff photographs or uploads old warranty receipts / supplier invoices as PDF or image → file stored encrypted in cloud drive → customer or staff types any serial number → system instantly surfaces original document → 1-click reprint or WhatsApp share.',
+    tasks:[
+      { t:'Cloud Drive Upload Adapter (S3 / R2)', d:'Encrypted multi-part upload, pre-signed CDN download URLs, MIME validation.', p:'HIGH', e:'3d', done:false },
+      { t:'Serial Number Instant Search UI', d:'Auto-complete by serial, phone, or invoice reference; results in <200ms.', p:'CRITICAL', e:'3d', done:false },
+      { t:'Digital Warranty Certificate Generator', d:'Generates reprintable warranty card with store seal and QR validation link.', p:'MEDIUM', e:'3d', done:false },
+      { t:'OCR Metadata Extraction Pipeline', d:'Google Vision / Tesseract extracts serial & date from uploaded receipt photos.', p:'LOW', e:'5d', done:false },
+    ],
+    endpoints:[
+      { m:'GET', p:'/api/v1/warranty/search?serial=SN-RTX4070-98213', d:'Returns document links and warranty status.',
+        req:{},
+        res:{ serial:'SN-RTX4070-98213', invoiceNo:'INV-2025-1082', saleDate:'2025-10-30', daysRemaining:730, storeWarranty:true, vendorWarranty:true, docUrl:'https://s.shop/wdoc/SN-RTX4070-98213.pdf' } },
+      { m:'POST', p:'/api/v1/warranty/upload', d:'Uploads warranty document and binds to serial.',
+        req:{ serial:'SN-RTX4070-98213', file:'[multipart/form-data PDF]' },
+        res:{ docId:'doc_9a1b2c', fileUrl:'https://s.shop/wdoc/doc_9a1b2c.pdf', status:'INDEXED' } },
+    ],
+    schema:`TABLE warranty_documents (
+  id                UUID PRIMARY KEY,
+  serial_number     VARCHAR(128) NOT NULL,
+  file_url          TEXT NOT NULL,
+  file_type         VARCHAR(16),   -- PDF|PNG|JPEG
+  invoice_reference VARCHAR(64),
+  ocr_extracted     JSONB,
+  -- { serial:"SN-...", date:"2025-10-30", invoiceNo:"..." }
+  uploaded_by       UUID REFERENCES staff_users(id),
+  created_at        TIMESTAMPTZ DEFAULT NOW()
+);`,
+  },
+  {
+    id:'service', label:'Repair & RMA', full:'Repair & RMA Service Center',
+    category:'Workshop & Client', color:'#f59e0b', lucide:'wrench',
+    pos:{ x:70, y:-60, z:80 },
+    journey:'Client brings device → serial lookup checks in-store purchase date and warranty validity → service ticket created (warranty / paid) → repair Kanban tracks stages → replacement parts deducted from serial inventory → customer gets live tracking URL with milestone timeline.',
+    tasks:[
+      { t:'Warranty Auto-Detector on Serial Lookup', d:'On serial entry, auto-flags if device is within store warranty period; shows days remaining.', p:'CRITICAL', e:'4d', done:false },
+      { t:'Technician Workshop Kanban Board', d:'Drag-drop: Intake → Diagnostic → Quoted → Approved → Bench Repair → QA → Ready.', p:'HIGH', e:'5d', done:false },
+      { t:'Parts Allocation from Inventory', d:'Reserve replacement serials from inventory, costing parts vs billable labour.', p:'HIGH', e:'3d', done:false },
+      { t:'Customer Live Tracking Portal', d:'Public URL with milestone timeline, tech notes, digital cost-approval button.', p:'CRITICAL', e:'4d', done:false },
+    ],
+    endpoints:[
+      { m:'POST', p:'/api/v1/service/tickets', d:'Creates repair ticket, detects warranty, assigns tech.',
+        req:{ customer:'Rajiv Silva', phone:'+94719876543', device:'ASUS ROG G14', serial:'SN-G14-2024', problem:'No display, power cycling', techId:'staff_kamal' },
+        res:{ ticketNo:'SRV-2026-0812', status:'RECEIVED', underWarranty:false, estimatedCost:150, trackUrl:'https://track.shop.com/SRV-2026-0812' } },
+      { m:'PATCH', p:'/api/v1/service/tickets/:id/stage', d:'Advances repair stage and logs technician note.',
+        req:{ stage:'BENCH_REPAIR', note:'Replaced blown MOSFET on VCORE rail. Running FurMark stress test.' },
+        res:{ ticketNo:'SRV-2026-0812', stage:'BENCH_REPAIR', updatedBy:'Kamal', ts:'2026-10-30T22:45:30Z' } },
+    ],
+    schema:`TABLE service_tickets (
+  id               UUID PRIMARY KEY,
+  ticket_no        VARCHAR(32) UNIQUE NOT NULL,
+  customer_name    VARCHAR(128) NOT NULL,
+  customer_phone   VARCHAR(32)  NOT NULL,
+  device_model     VARCHAR(128),
+  serial_number    VARCHAR(128),
+  is_under_warranty BOOLEAN NOT NULL,
+  status           VARCHAR(32) DEFAULT 'RECEIVED',
+  assigned_tech_id UUID REFERENCES staff_users(id),
+  estimated_cost   NUMERIC(12,2),
+  final_cost       NUMERIC(12,2),
+  tracking_token   VARCHAR(64) UNIQUE
+);`,
+  },
+  {
+    id:'staff_pos', label:'POS & Staff BI', full:'Staff POS & Margin Commission Engine',
+    category:'Staff & Analytics', color:'#ec4899', lucide:'creditCard',
+    pos:{ x:170, y:-20, z:-35 },
+    journey:'Sales staff creates invoice by scanning item serial → system reads that serial\'s exact purchase cost → computes real gross profit (Sale Price − Serial Cost) → credits staff commission ledger instantly → owner sees live daily margin dashboard.',
+    tasks:[
+      { t:'High-Speed Counter POS Terminal', d:'Touch & barcode interface for adding items, binding serials, printing receipts.', p:'CRITICAL', e:'6d', done:false },
+      { t:'Per-Serial Gross Profit Engine', d:'Commission = (Sell Price − Exact Serial Unit Cost) × Rate, no average cost blending.', p:'HIGH', e:'3d', done:false },
+      { t:'Staff Daily Cash Journal', d:'Register open/close float, units sold, service labor hours, refunds logged.', p:'HIGH', e:'4d', done:false },
+      { t:'Owner Gross Margin Dashboard', d:'Live KPIs: Revenue, Net Profit, Top Salesperson leaderboard, category margins.', p:'HIGH', e:'4d', done:false },
+    ],
+    endpoints:[
+      { m:'POST', p:'/api/v1/pos/checkout', d:'Executes sale, binds serial as SOLD, posts commission.',
+        req:{ staffId:'staff_kasun', customer:'David Miller', items:[{ serial:'SN-RTX4070-98213', soldPrice:650 }], payment:'CASH' },
+        res:{ invoiceNo:'INV-2026-4401', serial:'SN-RTX4070-98213', unitCost:510, soldPrice:650, grossProfit:140, commission:14, ts:'2026-10-30T22:45:45Z' } },
+      { m:'GET', p:'/api/v1/staff/:id/daily-summary', d:'Staff daily sold items, service tickets, commission totals.',
+        req:{},
+        res:{ staff:'Kasun Silva', date:'2026-10-30', itemsSold:6, totalSales:3450, grossProfit:620, commission:62 } },
+    ],
+    schema:`TABLE commission_records (
+  id               UUID PRIMARY KEY,
+  staff_id         UUID REFERENCES staff_users(id),
+  order_id         UUID REFERENCES orders(id),
+  serial_number    VARCHAR(128) NOT NULL,
+  sold_price       NUMERIC(12,2) NOT NULL,
+  unit_cost        NUMERIC(12,2) NOT NULL,
+  gross_profit     NUMERIC(12,2)
+    GENERATED ALWAYS AS (sold_price - unit_cost) STORED,
+  commission_rate  NUMERIC(5,4) NOT NULL,
+  commission_earned NUMERIC(12,2) NOT NULL,
+  created_at       TIMESTAMPTZ DEFAULT NOW()
+);`,
+  },
+  {
+    id:'loans', label:'Loan Tracker', full:'Device Installments & Loan Management',
+    category:'Credit & Finance', color:'#8b5cf6', lucide:'calendar',
+    pos:{ x:0, y:110, z:25 },
+    journey:'High-ticket item (laptop/gaming PC) flagged for hire-purchase → installment contract created with down payment, term (3/6/12 months), markup rate → monthly schedule auto-generated → customer KYC + guarantor docs stored → SMS reminders sent 3 days before due date.',
+    tasks:[
+      { t:'Installment Amortization Engine', d:'Calculates down payment, monthly instalments, interest/markup, early-settlement discount.', p:'CRITICAL', e:'4d', done:false },
+      { t:'Customer KYC Document Vault', d:'Upload National ID, utility bill proof, guarantor agreement; linked to contract.', p:'HIGH', e:'3d', done:false },
+      { t:'Payment Collection Ledger', d:'Record cash/bank-transfer payments, auto-recalculate balance, issue digital receipt.', p:'HIGH', e:'3d', done:false },
+      { t:'Overdue SMS/WhatsApp Escalation Cron', d:'Cron job triggers reminder 3 days prior, on due date, and overdue penalty flags.', p:'MEDIUM', e:'3d', done:false },
+    ],
+    endpoints:[
+      { m:'POST', p:'/api/v1/installments/contracts', d:'Creates hire-purchase contract and payment schedule.',
+        req:{ customer:'Nimal Wickramasinghe', nic:'198812345678', serial:'SN-ROG-LAPTOP-552', totalPrice:1800, downPayment:400, months:6 },
+        res:{ contractNo:'INST-2026-0042', remainingBalance:1470, monthlyInstalment:245, nextDue:'2026-11-30', status:'ACTIVE' } },
+      { m:'POST', p:'/api/v1/installments/:id/payments', d:'Records a monthly installment payment.',
+        req:{ amount:245, method:'BANK_TRANSFER' },
+        res:{ receipt:'RCP-INS-981', paid:245, remainingBalance:1225, status:'UP_TO_DATE' } },
+    ],
+    schema:`TABLE installment_contracts (
+  id                  UUID PRIMARY KEY,
+  contract_no         VARCHAR(32) UNIQUE NOT NULL,
+  customer_name       VARCHAR(128) NOT NULL,
+  customer_nic        VARCHAR(32)  NOT NULL,
+  serial_number       VARCHAR(128) NOT NULL,
+  total_price         NUMERIC(12,2) NOT NULL,
+  down_payment        NUMERIC(12,2) NOT NULL,
+  remaining_balance   NUMERIC(12,2) NOT NULL,
+  monthly_installment NUMERIC(12,2) NOT NULL,
+  status              VARCHAR(24) DEFAULT 'ACTIVE'
+  -- ACTIVE|OVERDUE|COMPLETED|DEFAULTED
+);`,
+  },
+];
+
+const LINKS = [
+  { f:'pc_builder', t:'quotation',  label:'Build Config' },
+  { f:'quotation',  t:'inventory',  label:'Reserve Serial' },
+  { f:'inventory',  t:'staff_pos',  label:'Bind Sold Serial' },
+  { f:'inventory',  t:'warranty',   label:'Index Doc' },
+  { f:'inventory',  t:'service',    label:'Verify Warranty' },
+  { f:'service',    t:'inventory',  label:'Parts Deduct' },
+  { f:'quotation',  t:'loans',      label:'Hire-Purchase' },
+  { f:'loans',      t:'inventory',  label:'Lock Serial' },
+];
+
+// ─────────────────────────────────────────────────────────────────
+//  PRE-LOAD LUCIDE IMAGES  (used in canvas drawImage)
+// ─────────────────────────────────────────────────────────────────
+const iconImgCache = {};
+
+function preloadIcons(cb) {
+  let remaining = NODES.length;
+  NODES.forEach(n => {
+    const img = svgToImg(LUCIDE[n.lucide], '#ffffff', 48);
+    iconImgCache[n.id] = img;
+    img.onload = () => { remaining--; if (remaining === 0) cb(); };
+    img.onerror = () => { remaining--; if (remaining === 0) cb(); };
+  });
+}
+
+function svgToImg(svgStr, color, size) {
+  const s = svgStr
+    .replace(/currentColor/g, color)
+    .replace('<svg ', `<svg width="${size}" height="${size}" `);
+  const blob = new Blob([s], { type: 'image/svg+xml' });
+  const img = new Image();
+  img.src = URL.createObjectURL(blob);
+  return img;
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  3D ENGINE
+// ─────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let rotX = 0.32, rotY = -0.50, autoRot = true;
+let dragging = false, px = 0, py = 0;
+let activeIdx = 0;
+
+function resize() {
+  const wrap = document.getElementById('canvasWrap');
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width  = wrap.clientWidth  * dpr;
+  canvas.height = wrap.clientHeight * dpr;
+  ctx.scale(dpr, dpr);
+}
+
+function proj(p, W, H) {
+  const cy = Math.cos(rotY), sy = Math.sin(rotY);
+  const cx = Math.cos(rotX), sx = Math.sin(rotX);
+  const x1 =  p.x * cy + p.z * sy;
+  const z1 = -p.x * sy + p.z * cy;
+  const y2 =  p.y * cx - z1 * sx;
+  const z2 =  p.y * sx + z1 * cx;
+  const fov = 430, dist = 370;
+  const sc = fov / (dist + z2);
+  return { x: W / 2 + x1 * sc, y: H / 2 + y2 * sc, sc, z: z2 };
+}
+
+// Animated data packets
+const packets = LINKS.flatMap((lk, li) =>
+  Array.from({ length: 4 }, () => ({
+    li, t: Math.random(), spd: 0.003 + Math.random() * 0.005, sz: 2 + Math.random() * 2
+  }))
+);
+
+// Check if canvas is in light mode
+function isLight() {
+  return document.documentElement.classList.contains('light');
+}
+
+function draw() {
+  const wrap = document.getElementById('canvasWrap');
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  ctx.clearRect(0, 0, W, H);
+  if (autoRot && !dragging) rotY += 0.0030;
+
+  // Project nodes
+  const pnodes = NODES.map((n, i) => ({ ...proj(n.pos, W, H), n, i }));
+
+  // 1. Grid floor
+  ctx.save();
+  ctx.strokeStyle = isLight() ? 'rgba(100,116,139,0.15)' : 'rgba(100,116,139,0.12)';
+  ctx.lineWidth = 1;
+  const G = 240, S = 40, FY = 130;
+  for (let x = -G; x <= G; x += S) {
+    const a = proj({ x, y: FY, z: -G }, W, H), b = proj({ x, y: FY, z: G }, W, H);
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+  for (let z = -G; z <= G; z += S) {
+    const a = proj({ x: -G, y: FY, z }, W, H), b = proj({ x: G, y: FY, z }, W, H);
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+  ctx.restore();
+
+  // 2. Links
+  LINKS.forEach(lk => {
+    const from = pnodes.find(n => n.n.id === lk.f);
+    const to   = pnodes.find(n => n.n.id === lk.t);
+    if (!from || !to) return;
+    const connected = (from.i === activeIdx || to.i === activeIdx);
+    ctx.save();
+    ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y);
+    if (connected) {
+      ctx.strokeStyle = 'rgba(99,102,241,0.7)'; ctx.lineWidth = 2.2;
+      ctx.shadowColor = '#6366f1'; ctx.shadowBlur = 12;
+    } else {
+      ctx.strokeStyle = isLight() ? 'rgba(71,85,105,0.25)' : 'rgba(100,116,139,0.22)';
+      ctx.lineWidth = 1.1;
+    }
+    ctx.stroke(); ctx.restore();
+  });
+
+  // 3. Animated packets
+  packets.forEach(pk => {
+    const lk = LINKS[pk.li];
+    const from = pnodes.find(n => n.n.id === lk.f);
+    const to   = pnodes.find(n => n.n.id === lk.t);
+    if (!from || !to) return;
+    pk.t += pk.spd;
+    if (pk.t > 1) pk.t = 0;
+    ctx.save();
+    ctx.fillStyle = '#38bdf8'; ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 7;
+    ctx.beginPath();
+    ctx.arc(from.x + (to.x - from.x) * pk.t, from.y + (to.y - from.y) * pk.t, pk.sz, 0, Math.PI * 2);
+    ctx.fill(); ctx.restore();
+  });
+
+  // 4. Nodes (back→front Z-sort)
+  [...pnodes].sort((a, b) => b.z - a.z).forEach(item => {
+    const sel = item.i === activeIdx;
+    const r = Math.max(18, 26 * item.sc * (sel ? 1.25 : 1));
+
+    ctx.save();
+    // Outer glow ring
+    if (sel) { ctx.shadowColor = item.n.color; ctx.shadowBlur = 28; }
+    ctx.beginPath(); ctx.arc(item.x, item.y, r + (sel ? 6 : 2), 0, Math.PI * 2);
+    ctx.fillStyle = sel ? `${item.n.color}30` : 'rgba(15,23,42,0.4)';
+    ctx.fill();
+
+    // Sphere with radial gradient
+    const g = ctx.createRadialGradient(item.x - r * .28, item.y - r * .28, r * .08, item.x, item.y, r);
+    g.addColorStop(0, '#fff');
+    g.addColorStop(0.28, item.n.color);
+    g.addColorStop(1, '#050b18');
+    ctx.beginPath(); ctx.arc(item.x, item.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = g; ctx.fill();
+    ctx.strokeStyle = sel ? '#ffffff' : 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = sel ? 2.5 : 1.4; ctx.stroke();
+
+    // Lucide icon via drawImage
+    const ic = iconImgCache[item.n.id];
+    if (ic && ic.complete) {
+      const isz = r * 1.1;
+      ctx.drawImage(ic, item.x - isz / 2, item.y - isz / 2, isz, isz);
+    }
+
+    ctx.restore();
+
+    // Label below sphere
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 5;
+    ctx.font = `${sel ? 700 : 600} ${Math.max(11, Math.round(12 * item.sc))}px system-ui,sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillStyle = sel ? '#ffffff' : (isLight() ? 'rgba(30,41,59,0.9)' : 'rgba(226,232,240,0.9)');
+    ctx.fillText(item.n.label, item.x, item.y + r + 7);
+    ctx.restore();
+  });
+
+  requestAnimationFrame(draw);
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  INTERACTIONS
+// ─────────────────────────────────────────────────────────────────
+canvas.addEventListener('mousedown', e => { dragging = true; px = e.clientX; py = e.clientY; });
+window.addEventListener('mouseup',   () => { dragging = false; });
+canvas.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  rotY += (e.clientX - px) * 0.008;
+  rotX = Math.max(-1.1, Math.min(1.1, rotX + (e.clientY - py) * 0.008));
+  px = e.clientX; py = e.clientY;
+});
+
+// Touch
+canvas.addEventListener('touchstart', e => { dragging = true; px = e.touches[0].clientX; py = e.touches[0].clientY; e.preventDefault(); }, { passive:false });
+window.addEventListener('touchend', () => { dragging = false; });
+canvas.addEventListener('touchmove', e => {
+  if (!dragging) return;
+  rotY += (e.touches[0].clientX - px) * 0.008;
+  rotX = Math.max(-1.1, Math.min(1.1, rotX + (e.touches[0].clientY - py) * 0.008));
+  px = e.touches[0].clientX; py = e.touches[0].clientY; e.preventDefault();
+}, { passive:false });
+
+canvas.addEventListener('click', e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const W = rect.width, H = rect.height;
+  let best = -1, minD = 38;
+  NODES.forEach((n, i) => {
+    const p = proj(n.pos, W, H);
+    const d = Math.hypot(p.x - mx, p.y - my);
+    if (d < minD) { minD = d; best = i; }
+  });
+  if (best !== -1) selectNode(best);
+});
+
+function resetCam() { rotX = 0.32; rotY = -0.50; }
+function toggleRot() {
+  autoRot = !autoRot;
+  const b = document.getElementById('rotBtn');
+  b.textContent = `Auto-Rotate ${autoRot ? '✓' : '✗'}`;
+  b.className = autoRot
+    ? 'text-xs px-2.5 py-1 rounded border border-indigo-500/30 bg-indigo-500/10 text-indigo-400'
+    : 'text-xs px-2.5 py-1 rounded border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)]';
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  INSPECTOR UI
+// ─────────────────────────────────────────────────────────────────
+const PRIO_STYLE = {
+  CRITICAL: 'bg-red-500/10 text-red-400 border-red-500/30',
+  HIGH:     'bg-amber-500/10 text-amber-400 border-amber-500/30',
+  MEDIUM:   'bg-blue-500/10 text-blue-400 border-blue-500/30',
+  LOW:      'bg-slate-500/10 text-slate-400 border-slate-500/30',
+};
+
+function selectNode(i) {
+  activeIdx = i;
+  renderPills();
+  updateInspector();
+}
+
+function renderPills() {
+  const bar = document.getElementById('pillBar');
+  bar.innerHTML = NODES.map((n, i) =>
+    `<button onclick="selectNode(${i})" class="px-2.5 py-1 rounded-lg text-xs whitespace-nowrap border transition-colors ${
+      i === activeIdx
+        ? 'border-indigo-500 bg-indigo-500/20 text-indigo-300 font-semibold'
+        : 'border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+    }">${n.label}</button>`
+  ).join('');
+}
+
+function updateInspector() {
+  const n = NODES[activeIdx];
+
+  document.getElementById('nodeBadge').textContent = `Node ${activeIdx + 1} / 7`;
+  document.getElementById('nodeCat').textContent = n.category;
+  document.getElementById('nodeTitle').textContent = n.full;
+  document.getElementById('nodeJourney').textContent = n.journey;
+  document.getElementById('taskCnt').textContent = n.tasks.length;
+
+  // Icon badge (Lucide SVG, colored with node color)
+  const badge = document.getElementById('nodeIconBadge');
+  badge.style.background = `${n.color}18`;
+  badge.style.borderColor = `${n.color}40`;
+  badge.style.color = n.color;
+  badge.innerHTML = LUCIDE[n.lucide].replace('<svg ', `<svg width="22" height="22" `);
+
+  // Tasks
+  document.getElementById('tab-tasks').innerHTML = n.tasks.map(t => `
+    <div class="p-3 rounded-xl border border-[var(--border)] bg-[var(--background)] hover:border-indigo-500/30 transition-colors">
+      <div class="flex items-center justify-between gap-2 flex-wrap">
+        <span class="text-xs font-semibold text-[var(--foreground)] flex items-center gap-1.5">
+          <span class="w-4 h-4 inline-flex items-center justify-center flex-shrink-0">
+            ${t.done
+              ? `<svg viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="20 6 9 17 4 12"/></svg>`
+              : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`}
+          </span>
+          ${t.t}
+        </span>
+        <div class="flex items-center gap-1.5">
+          <span class="px-1.5 py-0.5 rounded text-[11px] font-mono border ${PRIO_STYLE[t.p]}">${t.p}</span>
+          <span class="text-xs font-mono text-[var(--muted-foreground)]">${t.e}</span>
+        </div>
+      </div>
+      <p class="text-xs text-[var(--muted-foreground)] mt-1.5 leading-relaxed">${t.d}</p>
+    </div>
+  `).join('');
+
+  // Endpoints
+  document.getElementById('epList').innerHTML = n.endpoints.map((ep, i) => `
+    <div class="p-2.5 rounded-lg border border-[var(--border)] bg-[var(--background)] flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2 overflow-hidden">
+        <span class="px-2 py-0.5 rounded text-xs font-mono font-bold ${
+          ep.m === 'GET' ? 'bg-emerald-500/20 text-emerald-400' :
+          ep.m === 'POST' ? 'bg-indigo-500/20 text-indigo-400' : 'bg-amber-500/20 text-amber-400'
+        }">${ep.m}</span>
+        <span class="text-xs font-mono text-[var(--foreground)] truncate">${ep.p}</span>
+      </div>
+      <button onclick="mockRun(${i})" class="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium shadow-sm">
+        <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Run
+      </button>
+    </div>
+  `).join('');
+
+  // Schema
+  document.getElementById('schemaBox').innerHTML = `<pre class="text-[var(--foreground)]">${n.schema}</pre>`;
+
+  // Reset sandbox output
+  document.getElementById('resBox').textContent = "Click ▶ Run on any endpoint above to execute a mock call.";
+  document.getElementById('resBadge').textContent = '200 OK';
+
+  // Reset to tasks tab
+  tab('tasks');
+}
+
+function mockRun(epIdx) {
+  const ep = NODES[activeIdx].endpoints[epIdx];
+  const box = document.getElementById('resBox');
+  const badge = document.getElementById('resBadge');
+  badge.textContent = 'Simulating…';
+  badge.className = 'text-xs font-mono px-2 py-0.5 rounded bg-amber-500/15 text-amber-400';
+  box.textContent = `// ${ep.m} ${ep.p}\n// Transmitting payload…`;
+
+  setTimeout(() => {
+    badge.textContent = '200 OK · 38ms';
+    badge.className = 'text-xs font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400';
+    box.textContent = `// HTTP/1.1 200 OK  |  Latency: 38ms\n// ${ep.m} ${ep.p}\n\n` + JSON.stringify(ep.res, null, 2);
+  }, 280);
+}
+
+function tab(name) {
+  ['tasks','endpoints','schema'].forEach(t => {
+    document.getElementById(`tab-${t}`).classList.toggle('hidden', t !== name);
+    const btn = document.getElementById(`tbtn-${t}`);
+    btn.className = (t === name ? 'tab-active' : 'tab-inactive') + ' pb-2 text-xs font-semibold';
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  JOURNEY PRESETS
+// ─────────────────────────────────────────────────────────────────
+function selectJourney(type) {
+  document.querySelectorAll('.jbtn').forEach(b => { b.className = b.className.replace('active-jbtn','idle-jbtn'); });
+  const target = document.getElementById(`jbtn-${type}`);
+  if (target) target.className = target.className.replace('idle-jbtn','active-jbtn');
+
+  if (type === 'customer') { selectNode(0); rotX = 0.20; rotY = -0.30; }
+  else if (type === 'service') { selectNode(4); rotX = 0.40; rotY = 0.60; }
+  else if (type === 'owner') { selectNode(5); rotX = 0.10; rotY = 1.20; }
+  else { resetCam(); selectNode(0); }
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  BOOT
+// ─────────────────────────────────────────────────────────────────
+window.addEventListener('resize', resize);
+resize();
+renderPills();
+updateInspector();
+preloadIcons(() => { draw(); });
+</script>
+</body>
+</html>
